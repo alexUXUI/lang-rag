@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: SAM template for basic-rag application with Ollama
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.xlarge
+    Description: EC2 instance type for running Ollama
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Environment name
+
+Resources:
+  OllamaInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Path: /
+
+  OllamaInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref OllamaInstanceRole
+
+  OllamaInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: ami-0c7217cdde317cfec  # Amazon Linux 2023 AMI in us-east-1
+      KeyName: !Ref KeyName
+      SecurityGroups: 
+        - !Ref OllamaSecurityGroup
+      IamInstanceProfile: !Ref OllamaInstanceProfile
+      UserData: 
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          
+          # Install Ollama
+          curl -fsSL https://ollama.com/install.sh | sh
+          
+          # Pull the llama2 model
+          ollama pull llama2
+          
+          # Install Python and dependencies
+          yum install -y python3-pip
+          pip3 install -r requirements.txt
+          
+          # Start the FastAPI application
+          python3 -m uvicorn src.api:app --host 0.0.0.0 --port 80
+
+  OllamaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Ollama instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 11434
+          ToPort: 11434
+          CidrIp: 0.0.0.0/0  # Ollama API port
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # SSH access
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src.api.lambda_handler
+      Runtime: python3.9
+      Environment:
+        Variables:
+          OLLAMA_HOST: !GetAtt OllamaInstance.PublicDnsName
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  OllamaInstancePublicDNS:
+    Description: Public DNS name of the Ollama EC2 instance
+    Value: !GetAtt OllamaInstance.PublicDnsName
+  
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/" 

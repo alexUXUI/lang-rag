@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>WebSocket Chat Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      #chat-container {
+        border: 1px solid #ccc;
+        padding: 20px;
+        margin-top: 20px;
+        height: 400px;
+        overflow-y: auto;
+      }
+      .message {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .user-message {
+        background-color: #e3f2fd;
+        margin-left: 20%;
+      }
+      .bot-message {
+        background-color: #f5f5f5;
+        margin-right: 20%;
+      }
+      .error {
+        color: red;
+        font-weight: bold;
+      }
+      #input-container {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      #query-input {
+        flex-grow: 1;
+        padding: 10px;
+      }
+      button {
+        padding: 10px 20px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      #status {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 5px;
+      }
+      .connected {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+      }
+      .disconnected {
+        background-color: #ffebee;
+        color: #c62828;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebSocket Chat Test</h1>
+
+    <div id="setup-container">
+      <h2>Setup</h2>
+      <div>
+        <label for="session-id">Session ID:</label>
+        <input type="text" id="session-id" value="test_session_123" />
+      </div>
+      <div>
+        <label for="pdf-path">PDF Path:</label>
+        <input type="text" id="pdf-path" value="./data/test.pdf" />
+      </div>
+      <button onclick="createSession()">Create Session</button>
+      <button onclick="connectWebSocket()">Connect WebSocket</button>
+    </div>
+
+    <div id="status" class="disconnected">Disconnected</div>
+
+    <div id="chat-container"></div>
+
+    <div id="input-container">
+      <input
+        type="text"
+        id="query-input"
+        placeholder="Type your message..."
+        disabled
+      />
+      <button id="send-button" onclick="sendMessage()" disabled>Send</button>
+    </div>
+
+    <script>
+      let ws = null;
+      const chatContainer = document.getElementById("chat-container");
+      const queryInput = document.getElementById("query-input");
+      const sendButton = document.getElementById("send-button");
+      const statusDiv = document.getElementById("status");
+
+      function addMessage(message, isUser = false) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${
+          isUser ? "user-message" : "bot-message"
+        }`;
+        messageDiv.textContent = message;
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      function addError(message) {
+        const errorDiv = document.createElement("div");
+        errorDiv.className = "message error";
+        errorDiv.textContent = `Error: ${message}`;
+        chatContainer.appendChild(errorDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      async function createSession() {
+        const sessionId = document.getElementById("session-id").value;
+        const pdfPath = document.getElementById("pdf-path").value;
+
+        try {
+          const response = await fetch(`/sessions/${sessionId}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ pdf_path: pdfPath }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          addMessage(`Session created: ${data.session_id}`);
+        } catch (error) {
+          addError(`Failed to create session: ${error.message}`);
+        }
+      }
+
+      function connectWebSocket() {
+        const sessionId = document.getElementById("session-id").value;
+        ws = new WebSocket(`ws://${window.location.host}/ws/chat/${sessionId}`);
+
+        ws.onopen = () => {
+          statusDiv.textContent = "Connected";
+          statusDiv.className = "connected";
+          queryInput.disabled = false;
+          sendButton.disabled = false;
+          addMessage("WebSocket connected");
+        };
+
+        ws.onclose = () => {
+          statusDiv.textContent = "Disconnected";
+          statusDiv.className = "disconnected";
+          queryInput.disabled = true;
+          sendButton.disabled = true;
+          addMessage("WebSocket disconnected");
+        };
+
+        ws.onerror = (error) => {
+          addError(`WebSocket error: ${error.message}`);
+        };
+
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            addError(data.error);
+          } else {
+            addMessage(data.response);
+            if (data.sources && data.sources.length > 0) {
+              addMessage("Sources: " + data.sources.join("\n"));
+            }
+          }
+        };
+      }
+
+      function sendMessage() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          addError("WebSocket is not connected");
+          return;
+        }
+
+        const query = queryInput.value.trim();
+        if (!query) {
+          return;
+        }
+
+        addMessage(query, true);
+        ws.send(JSON.stringify({ query }));
+        queryInput.value = "";
+      }
+
+      // Allow sending with Enter key
+      queryInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          sendMessage();
+        }
+      });
+    </script>
+  </body>
+</html>

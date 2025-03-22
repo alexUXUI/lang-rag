@@ -1,0 +1,134 @@
+graph TB
+    %% Main System Components
+    subgraph System["LangGraph RAG System"]
+        direction TB
+        
+        %% Agent Feature Group
+        subgraph AgentFeature["Agent Feature"]
+            direction LR
+            subgraph AgentCore["Agent Core"]
+                direction TB
+                AgentState["Agent State"]
+                AgentTools["Agent Tools"]
+                StateGraph["State Graph"]
+                Router["Router"]
+            end
+            
+            subgraph AgentStorage["Agent Storage"]
+                direction LR
+                StateDB["State Store"]
+                MemoryCache["Memory Cache"]
+            end
+        end
+        
+        %% RAG Feature Group
+        subgraph RAGFeature["RAG Feature"]
+            direction LR
+            subgraph RAGChain["RAG Chain"]
+                direction TB
+                Extract["1 Extract Text"]
+                Chunk["2 Chunk Text"]
+                Embed["3 Embed Chunks"]
+                Retrieve["4 Retrieve Context"]
+                Generate["5 Generate Response"]
+            end
+            
+            subgraph RAGStorage["RAG Storage"]
+                direction LR
+                VectorDB["Vector DB"]
+                ChunkDB["Chunk Store"]
+                SummaryDB["Summary Store"]
+                DiskCache["Disk Cache"]
+            end
+        end
+        
+        %% Tool Feature Group
+        subgraph ToolFeature["Tool Feature"]
+            direction LR
+            PDFTool["PDF Tool"]
+            LLMTool["LLM Tool"]
+            EmbeddingTool["Embedding Tool"]
+            VectorStore["Vector Store"]
+        end
+        
+        %% LangGraph Component with Conditional Logic
+        subgraph LangGraph["LangGraph Component"]
+            direction TB
+            subgraph GraphLogic["Graph Logic"]
+                direction LR
+                Router -->|"if error"| End
+                Router -->|"if final_summary"| End
+                Router -->|"if continue"| NextNode
+                NextNode -->|"extract"| Extract
+                NextNode -->|"summarize"| Generate
+                NextNode -->|"combine"| Generate
+            end
+        end
+    end
+    
+    %% External Components
+    subgraph External["External Components"]
+        direction LR
+        PDF["PDF Input"]
+        Client["Client"]
+    end
+    
+    %% Feature Relationships
+    Client --> AgentState
+    PDF --> PDFTool
+    
+    %% Agent Feature Flow
+    AgentState --> Router
+    AgentState --> StateDB
+    StateDB --> MemoryCache
+    
+    %% RAG Feature Flow
+    Extract --> Chunk
+    Chunk --> Embed
+    Embed --> Retrieve
+    Retrieve --> Generate
+    
+    Chunk --> ChunkDB
+    ChunkDB --> DiskCache
+    
+    Embed --> VectorDB
+    VectorDB --> VectorStore
+    
+    Generate --> SummaryDB
+    SummaryDB --> DiskCache
+    
+    %% Tool Integration
+    PDFTool --> Extract
+    LLMTool --> Generate
+    EmbeddingTool --> Embed
+    VectorStore --> Retrieve
+    
+    %% Implementation Details
+    Note1["Agent Implementation:<br/>1 TypedDict State<br/>2 Tool Registry<br/>3 Error Handling"]
+    Note2["RAG Implementation:<br/>1 Chunk Size: 4000 chars<br/>2 Temperature: 01<br/>3 Max Tokens: 1024"]
+    Note3["Graph Logic:<br/>1 Error Detection<br/>2 State Management<br/>3 Dynamic Routing"]
+    
+    Note1 --> AgentFeature
+    Note2 --> RAGFeature
+    Note3 --> GraphLogic
+    
+    %% Styling
+    style AgentFeature fill:#eaeaea,stroke:#333,stroke-width:2px,color:#333
+    style RAGFeature fill:#eaeaea,stroke:#333,stroke-width:2px,color:#333
+    style ToolFeature fill:#eaeaea,stroke:#333,stroke-width:2px,color:#333
+    style AgentState fill:#bbf,stroke:#333,stroke-width:2px,color:#333
+    style AgentTools fill:#bbf,stroke:#333,stroke-width:2px,color:#333
+    style StateGraph fill:#bbf,stroke:#333,stroke-width:2px,color:#333
+    style Router fill:#bbf,stroke:#333,stroke-width:2px,color:#333
+    style StateDB fill:#fbf,stroke:#333,stroke-width:2px,color:#333
+    style VectorDB fill:#fbf,stroke:#333,stroke-width:2px,color:#333
+    style ChunkDB fill:#fbf,stroke:#333,stroke-width:2px,color:#333
+    style SummaryDB fill:#fbf,stroke:#333,stroke-width:2px,color:#333
+    style PDFTool fill:#bfb,stroke:#333,stroke-width:2px,color:#333
+    style LLMTool fill:#bfb,stroke:#333,stroke-width:2px,color:#333
+    style EmbeddingTool fill:#bfb,stroke:#333,stroke-width:2px,color:#333
+    style VectorStore fill:#bfb,stroke:#333,stroke-width:2px,color:#333
+    style PDF fill:#fbb,stroke:#333,stroke-width:2px,color:#333
+    style Client fill:#fbb,stroke:#333,stroke-width:2px,color:#333
+    style LangGraph fill:#f9f,stroke:#333,stroke-width:2px,color:#333
+    style GraphLogic fill:#f9f,stroke:#333,stroke-width:2px,color:#333

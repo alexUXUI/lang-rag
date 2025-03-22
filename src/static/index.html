@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Chat Interface</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .chat-container {
+        height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+      }
+      .message {
+        margin-bottom: 10px;
+        padding: 10px;
+        border-radius: 4px;
+      }
+      .user-message {
+        background-color: #e3f2fd;
+        margin-left: 20%;
+      }
+      .assistant-message {
+        background-color: #f5f5f5;
+        margin-right: 20%;
+      }
+      .input-container {
+        display: flex;
+        gap: 10px;
+      }
+      input[type="text"] {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      button {
+        padding: 10px 20px;
+        background-color: #2196f3;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #1976d2;
+      }
+      .error {
+        color: red;
+        margin-bottom: 10px;
+      }
+      .status {
+        color: #666;
+        margin-bottom: 10px;
+      }
+      .example-questions {
+        margin: 20px 0;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+      }
+      .example-questions h3 {
+        margin-bottom: 10px;
+        color: #495057;
+      }
+      .question-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .question-buttons button {
+        padding: 8px 16px;
+        background-color: #e9ecef;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #495057;
+        transition: all 0.2s ease;
+      }
+      .question-buttons button:hover {
+        background-color: #dee2e6;
+        border-color: #ced4da;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>RAG Chat Interface</h1>
+
+      <div id="session-controls">
+        <input
+          type="file"
+          id="pdf-file"
+          accept=".pdf"
+          style="display: none"
+          onchange="handleFileSelect(event)"
+        />
+        <button onclick="document.getElementById('pdf-file').click()">
+          Choose PDF
+        </button>
+        <button onclick="deleteSession()">Delete Session</button>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="error" class="error"></div>
+
+      <div id="faq-container" style="display: none; margin-bottom: 20px">
+        <h2>Frequently Asked Questions</h2>
+        <div id="faq-list"></div>
+      </div>
+
+      <div class="chat-container" id="chat-container"></div>
+
+      <div class="example-questions">
+        <h3>Example Questions:</h3>
+        <div class="question-buttons">
+          <button
+            onclick="submitExampleQuestion('What is the purpose of this document?')"
+          >
+            What is the purpose of this document?
+          </button>
+          <button
+            onclick="submitExampleQuestion('What are the key requirements?')"
+          >
+            What are the key requirements?
+          </button>
+          <button
+            onclick="submitExampleQuestion('What are the main sections of the document?')"
+          >
+            What are the main sections of the document?
+          </button>
+          <button
+            onclick="submitExampleQuestion('What are the compliance requirements?')"
+          >
+            What are the compliance requirements?
+          </button>
+          <button
+            onclick="submitExampleQuestion('What are the deadlines or timelines mentioned?')"
+          >
+            What are the deadlines or timelines mentioned?
+          </button>
+        </div>
+      </div>
+
+      <div class="input-container">
+        <input type="text" id="query" placeholder="Type your question..." />
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
+    <script>
+      let ws = null;
+      let sessionId = null;
+      const chatContainer = document.getElementById("chat-container");
+      const queryInput = document.getElementById("query");
+      const statusDiv = document.getElementById("status");
+      const errorDiv = document.getElementById("error");
+
+      // Create session when page loads
+      window.addEventListener("load", async () => {
+        try {
+          updateStatus("Creating session...");
+          sessionId = Date.now().toString();
+          console.log("Created new session ID:", sessionId);
+
+          // Create initial session without PDF
+          const sessionResponse = await fetch(`/sessions/${sessionId}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ pdf_path: null }),
+          });
+
+          if (!sessionResponse.ok) {
+            throw new Error("Failed to create session");
+          }
+
+          // Connect WebSocket
+          connectWebSocket();
+          updateStatus(
+            "Session created successfully. Please upload a PDF to start."
+          );
+          showError("");
+        } catch (error) {
+          console.error("Error creating session:", error);
+          showError(error.message);
+          updateStatus("");
+        }
+      });
+
+      function updateStatus(message) {
+        statusDiv.textContent = message;
+      }
+
+      function showError(message) {
+        errorDiv.textContent = message;
+      }
+
+      function addMessage(content, isUser) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${
+          isUser ? "user-message" : "assistant-message"
+        }`;
+        messageDiv.textContent = content;
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      async function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        try {
+          updateStatus("Uploading document...");
+
+          // Create FormData and append file
+          const formData = new FormData();
+          formData.append("file", file);
+
+          // Upload the file
+          const uploadResponse = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error("Failed to upload document");
+          }
+
+          const uploadData = await uploadResponse.json();
+
+          // Update session with the uploaded file
+          const sessionResponse = await fetch(`/sessions/${sessionId}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ pdf_path: uploadData.temp_path }),
+          });
+
+          if (!sessionResponse.ok) {
+            throw new Error("Failed to update session");
+          }
+
+          // Generate FAQs
+          await generateFAQs(uploadData.temp_path);
+
+          updateStatus(
+            "Document uploaded and processed successfully. You can now ask questions about the document."
+          );
+          showError("");
+        } catch (error) {
+          console.error("Error handling file:", error);
+          showError(error.message);
+          updateStatus("");
+        }
+      }
+
+      async function deleteSession() {
+        if (!sessionId) {
+          showError("No active session");
+          return;
+        }
+
+        try {
+          const response = await fetch(`/sessions/${sessionId}`, {
+            method: "DELETE",
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to delete session");
+          }
+
+          sessionId = null;
+          updateStatus("Session deleted");
+          if (ws) {
+            ws.close();
+            ws = null;
+          }
+        } catch (error) {
+          showError(error.message);
+        }
+      }
+
+      function connectWebSocket() {
+        if (!sessionId) {
+          showError("No active session");
+          return;
+        }
+
+        if (ws) {
+          console.log("Closing existing WebSocket connection");
+          ws.close();
+        }
+
+        // Use the same host as the current page
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws/chat/${sessionId}`;
+        console.log("Connecting to WebSocket:", wsUrl);
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log("WebSocket connected successfully");
+          updateStatus("WebSocket connected");
+          showError("");
+        };
+
+        ws.onclose = (event) => {
+          console.log("WebSocket disconnected", event.code, event.reason);
+          // updateStatus("WebSocket disconnected");
+          // showError("WebSocket disconnected");
+          ws = null;
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          // showError("WebSocket error occurred");
+          ws = null;
+        };
+
+        ws.onmessage = (event) => {
+          console.log("Received WebSocket message:", event.data);
+          const data = JSON.parse(event.data);
+          if (data.error) {
+            showError(data.error);
+          } else {
+            addMessage(data.response, false);
+          }
+        };
+      }
+
+      function sendMessage() {
+        const query = queryInput.value.trim();
+        if (!query) {
+          showError("Please enter a question");
+          return;
+        }
+
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log("WebSocket not connected, attempting to reconnect...");
+          showError("WebSocket not connected. Attempting to reconnect...");
+          connectWebSocket();
+          // Wait for connection to be established
+          setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              console.log("WebSocket reconnected, sending message");
+              addMessage(query, true);
+              ws.send(JSON.stringify({ query }));
+            } else {
+              console.error("Failed to establish WebSocket connection");
+              showError("Failed to establish WebSocket connection");
+            }
+          }, 1000);
+        } else {
+          console.log("Sending message through WebSocket");
+          addMessage(query, true);
+          ws.send(JSON.stringify({ query }));
+        }
+        queryInput.value = "";
+      }
+
+      // Allow sending with Enter key
+      queryInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          sendMessage();
+        }
+      });
+
+      async function generateFAQs(pdfPath) {
+        try {
+          updateStatus("Generating FAQs...");
+          const response = await fetch("/faq", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ pdf_path: pdfPath }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || "Failed to generate FAQs");
+          }
+
+          const data = await response.json();
+          displayFAQs(data.faqs);
+          updateStatus("FAQs generated successfully");
+        } catch (error) {
+          console.error("Error generating FAQs:", error);
+          showError(error.message);
+        }
+      }
+
+      function displayFAQs(faqs) {
+        const faqContainer = document.getElementById("faq-container");
+        const faqList = document.getElementById("faq-list");
+        faqContainer.style.display = "block";
+        faqList.innerHTML = "";
+
+        faqs.forEach((faq, index) => {
+          const faqItem = document.createElement("div");
+          faqItem.className = "faq-item";
+          faqItem.style.marginBottom = "15px";
+          faqItem.style.padding = "10px";
+          faqItem.style.border = "1px solid #ddd";
+          faqItem.style.borderRadius = "4px";
+
+          const question = document.createElement("div");
+          question.className = "faq-question";
+          question.style.fontWeight = "bold";
+          question.style.marginBottom = "5px";
+          question.textContent = `${index + 1}. ${faq.question}`;
+
+          const answer = document.createElement("div");
+          answer.className = "faq-answer";
+          answer.style.marginLeft = "20px";
+          answer.style.color = "#666";
+          answer.textContent = faq.answer;
+
+          faqItem.appendChild(question);
+          faqItem.appendChild(answer);
+          faqList.appendChild(faqItem);
+        });
+      }
+
+      function submitExampleQuestion(question) {
+        queryInput.value = question;
+        sendMessage();
+      }
+    </script>
+  </body>
+</html>

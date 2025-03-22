@@ -1,0 +1,12 @@
+graph TD
+    A[Start] --> B{Check State}
+    
+    B -->|1 Error?| C[End]
+    B -->|2 Final Summary?| C
+    B -->|3 Summaries exist?| D[Combine Summaries]
+    B -->|4 Chunks exist?| E[Summarize Chunks]
+    B -->|5 Default| F[Extract Text]
+    
+    D --> B
+    E --> B
+    F --> B
